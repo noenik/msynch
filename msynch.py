@@ -172,8 +172,8 @@ def readFolder(baseDir):
         for f in files:
             fp = os.path.join(dirpath, f)
 
-            #if(ismediafile(fp)):
-            fileList.append(fp)
+            if(ismediafile(fp)):
+                fileList.append(fp)
 
     return fileList
 
