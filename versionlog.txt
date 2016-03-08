@@ -1,0 +1,8 @@
+V0.0.1
+# Trådene kjøres recursivt
+	Dersom det kommer inn nye elementer i jobbkøen etter at sluttsignalet er 
+	sendt til trådene startes de på nytt.
+
+# Nye filer blir bare ignorert dersom databasefilen ikke eksisterer
+	Tidligere ble alle filer ignorert ved oppstart. Nå blir filer ignorert kun
+	hvis databasefilen ikke eksisterer
