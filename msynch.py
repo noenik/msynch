@@ -1,9 +1,9 @@
 import sqlite3 as lite
-import os, threading, queue, time, shutil, re, codecs, configparser
+import os, threading, queue, time, shutil, re, codecs, configparser, sys
 
 
 #################################################################
-## Global variable declarations
+# Global variable declarations
 #################################################################
 
 accepted_filetypes = ["mkv", "mp4", "avi"]
@@ -15,6 +15,9 @@ parser = configparser.ConfigParser()
 destinations = {}
 
 # Global variables used for multithreading
+currentFileSize = 0
+lastIt = time.time()
+allowprint = True
 exitFlag = 0
 queueLock = threading.Lock()
 writeLock = threading.Lock()
@@ -28,14 +31,13 @@ active = False
 # Database and logg variables
 exists = os.path.exists("files.db")
 con = lite.connect("files.db")
-logg = codecs.open("logg.txt", "a", "utf-8")
 
 
 #################################################################
-## Setup functions / general functions
+# Setup functions / general functions
 #################################################################
 
-## Class for thread that moves files
+# Class for thread that moves files
 class MoveHandler(threading.Thread):
     def __init__(self, thID, name, q):
         threading.Thread.__init__(self)
@@ -44,10 +46,10 @@ class MoveHandler(threading.Thread):
         self.q = q
 
     def run(self):
-        moveFiles(self.name, self.q)
+        copyFiles(self.name, self.q)
 
 
-## Create database file and table
+# Create database file and table
 def setup_db():
 
     with con:
@@ -64,7 +66,7 @@ def setup_db():
         )
 
 
-## Read config, creates new config if it doesn't exist
+# Read config, creates new config if it doesn't exist
 def readConfig():
     global destinations, interval
 
@@ -114,28 +116,27 @@ def readConfig():
             print("Interval not set. Using standard: 30min")
 
 
-## Create a log entry with timestamp. 
-def createLogEntry(entry, entryType):
+# Write an entry to the log, aquire writeLock first to be safe.
+def write_logg(entry, entryType):
+
+    writeLock.acquire()
+
+    logg = codecs.open("logg.txt", "a", "utf-8")
+
     time_of_entry = time.asctime(time.localtime(time.time()))
     entry = "%s: [%s] %s\n" % (time_of_entry, entryType, entry)
 
-    return entry
-
-
-## Write an entry to the log, aquire writeLock first to be safe.
-def write_logg(message):
-    writeLock.acquire()
-    print("Writing to log")
-    logg.write(message)
+    with logg:
+        logg.write(entry)
 
     writeLock.release()
 
 
 #################################################################
-## Functions for tracking files
+# Functions for tracking files
 #################################################################
 
-## Check if the file is a desired media file by size and filetype
+# Check if the file is a desired media file by size and filetype
 def ismediafile(filepath):
     filename = filepath.split(os.path.sep)[-1]
     substrings = filename.split('.')
@@ -148,7 +149,8 @@ def ismediafile(filepath):
     else:
         return False
 
-## Retrieve all files in the database
+
+# Retrieve all files in the database
 def getLoggedFiles():
     files = {}
     with con:
@@ -163,7 +165,8 @@ def getLoggedFiles():
 
     return files
 
-## Read directory for all files
+
+# Read directory for all files
 def readFolder(baseDir):
 
     fileList = []
@@ -177,14 +180,15 @@ def readFolder(baseDir):
 
     return fileList
 
-## Add files that dos not already exist in the db
+
+# Add files that dos not already exist in the db
 def checkFiles():
     global readyFlag, init, con
     con = lite.connect("files.db")
     fileList = readFolder(destinations['base'])
     loggedFiles = getLoggedFiles()
 
-    print("\n%s: Starting new run" % time.asctime(time.localtime(time.time())))
+    terout("\n%s: Starting new run" % time.asctime(time.localtime(time.time())))
 
     insert = False
     update = False
@@ -247,36 +251,49 @@ def checkFiles():
             for query in insQueries:
                 cur.execute(query)
 
-            print("Found new files")
+            terout("Found new files")
         else:
-            print("No new files this time...")
+            terout("No new files this time...")
 
         if update:
             for updateQuery in updateQueries:
                 cur.execute(updateQuery)
-            print("Updating some data on the files")
+            terout("Updating some data on the files")
 
     if readyFlag:
-        print("Ready flag up - initiating file transfers")
+        terout("Ready flag up - initiating file transfers")
         handleItems()
         readyFlag = 0
 
     if init:
         init = False
-        print("Initial run: ignoring all files")
-        print("Reading folder: %s" % destinations['base'])
+        terout("Initial run: ignoring all files")
+        terout("Reading folder: %s" % destinations['base'])
 
 
 #################################################################
-## Functions for moving files
+# Functions for copying files
 #################################################################
 
+
+def copyfileobj(fsrc, fdst, length=16*1024):
+    copied = 0
+    while True:
+        buf = fsrc.read(length)
+        if not buf:
+            break
+        fdst.write(buf)
+        copied += len(buf)
+        displayProgress(copied)
+
+
+# Returns the target destinations based on regex and size matching
 def determineDestination(filedata):
     size = filedata[2]
     fileName = filedata[1]
     size /= 1000000
 
-    matchSeries = re.search(r'(?ix) (s|season)? \d{1,2} (e|ep|x|episode) \s* \d{1,2} .*$', fileName)
+    matchSeries = re.search(r'(?ix) (s|season) \d{1,2} (e|ep|x|episode) \s* \d{1,2} .*$', fileName)
 
     if matchSeries:
         return destinations["TV"]
@@ -285,7 +302,8 @@ def determineDestination(filedata):
     else:
         return destinations["Manual"]
 
-## Make a list of files that are marked done but not copied
+
+# Make a list of files that are marked done but not copied
 def creteRunList():
     moveList = []
     with con:
@@ -303,8 +321,10 @@ def creteRunList():
 
     return moveList
 
-## Move files
-def moveFiles(threadName, q):
+
+# Move files
+def copyFiles(threadName, q):
+    global currentFileSize
 
     while not exitFlag:
         if not workQueue.empty():
@@ -314,85 +334,73 @@ def moveFiles(threadName, q):
             queueLock.release()
 
             dest = determineDestination(fileData)
+            
+            if os.path.isdir(dest):
+                dest = os.path.join(dest, os.path.basename(fileData[1]))
+
             filename = fileData[0]
-            target = os.path.join(dest, filename)
+            currentFileSize = fileData[2]
 
             try:
-                write_logg(createLogEntry("Staring copy of file: %s" % filename, "Info"))
+                print("\n\nCopying file: %s" % filename)
+                with open(fileData[1], 'rb') as fsrc:
+                    with open(dest, 'wb') as fdst:
+                        copyfileobj(fsrc, fdst)
+                shutil.copymode(fileData[1], dest)               
 
-                shutil.copy(fileData[1], dest)
+                write_logg("Copied file: %s to %s" % (filename, dest), "Success")
 
-                write_logg(createLogEntry("Copied file: %s to %s" % (filename, dest), "Success"))
+            except IOError as e:
+                write_logg("Failed to copy file %s" % filename, "Error")
 
-            except IOError:
-                write_logg(createLogEntry("Failed to copy file %s" % filename, "Error"))
 
-## Run threads. When all threads are done, restart if new items have appeared in the queue.
-def runThreads(threads):
+# Run threads. When all threads are done, restart if new items have appeared in the queue.
+def runThread(thread):
     global active, exitFlag
 
-    # Start all threads
-    for thread in threads:
-        thread.start()
+    thread.start()
 
-    # Wait for queue to empty
     while not workQueue.empty():
         pass
 
-    # Notify threads it's time to exit
     exitFlag = 1
 
-    # Wait	or all threads to complete
-    for t in threads:
-        t.join()
+    thread.join()
 
     if not workQueue.empty():
-        runThreads(threads)
+        runThread(thread)
     else:
         active = False
 
-## Starts up threads, fills the workqueue with the files that are ready to be copied.
-def handleItems():
-    global exitFlag, logg, active
 
-    threads = []
+# Starts up threads, fills the workqueue with the files that are ready to be copied.
+def handleItems():
+    global exitFlag, active, allowprint
+
     runList = creteRunList()
 
     if runList and not active:
-        print("Creating new threads")
-        logg = codecs.open("logg.txt", "a", "utf-8")
+        terout("Creating new threads")
 
         exitFlag = 0
         active = 1
 
-        threadList = ["Thread-1", "Thread-2", "Thread-3"]
-        threadID = 1
+        thread = MoveHandler(1, "Thread-1", workQueue)
 
-        # Create new threads
-        for tName in threadList:
-            thread = MoveHandler(threadID, tName, workQueue)
-            threads.append(thread)
-            threadID += 1
-
-        # Fill the queue
-        num = 0
         queueLock.acquire()
 
         for item in runList:
 
-            num += 1
             workQueue.put(item)
 
         queueLock.release()
 
-        runThreads(threads)
-
-        logg.close()
-
-        runList = []
+        allowprint = False
+        runThread(thread)
+        allowprint = True
 
     elif active:
-        print("Threads active, putting work in queue")
+        terout("Threads active, putting work in queue")
         queueLock.acquire()
 
         for item in runList:
@@ -402,7 +410,35 @@ def handleItems():
         queueLock.release()
 
 
-## Performs a task at regular intervals. 
+#################################################################
+# Functions
+#################################################################
+
+# Makes a progressbar when copying files
+def displayProgress(copied):
+    global lastIt
+
+    if time.time() - lastIt >= 1 or copied == currentFileSize:
+        lastIt = time.time()
+        progress = int((copied/currentFileSize) * 20)
+        
+        cp = copied/1000000
+        tot = currentFileSize/1000000
+
+        spaces = 20 - progress
+        strout = "[%s>%s] %iMB / %iMB\r" % ("="*progress, " "*spaces, cp, tot)
+
+        sys.stdout.write(strout)
+        sys.stdout.flush()
+
+
+# Print given message to console if allowed
+def terout(msg):
+    if allowprint:
+        sys.stdout.write("\n" + msg)
+
+
+# Performs a task at regular intervals.
 def task(interval, work_function, it = 0):
     if it != 1:
         threading.Timer(
