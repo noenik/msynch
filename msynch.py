@@ -276,7 +276,7 @@ def checkFiles():
 #################################################################
 
 
-def copyfileobj(fsrc, fdst, length=16*1024):
+def copyfileobj(fsrc, fdst, length=10*1024*1024):
     copied = 0
     while True:
         buf = fsrc.read(length)
@@ -342,13 +342,13 @@ def copyFiles(threadName, q):
             currentFileSize = fileData[2]
 
             try:
-                #print("\n\nCopying file: %s" % filename)
-                #with open(fileData[1], 'rb') as fsrc:
-                #    with open(dest, 'wb') as fdst:
-                #        copyfileobj(fsrc, fdst)
-                #shutil.copymode(fileData[1], dest)               
+                print("\n\nCopying file: %s" % filename)
+                with open(fileData[1], 'rb') as fsrc:
+                    with open(dest, 'wb') as fdst:
+                        copyfileobj(fsrc, fdst)
+                shutil.copymode(fileData[1], dest)               
 
-                shutil.copy(fileData[1], dest)
+                #shutil.copy(fileData[1], dest)
                 write_logg("Copied file: %s to %s" % (filename, dest), "Success")
 
             except IOError as e:
@@ -391,7 +391,7 @@ def handleItems():
         threadID = 1
         threads = []
 
-        for i in range(1,3):
+        for i in range(1,2):
             thread = MoveHandler(i, "Thread-"+i, workQueue)
             threads.put(thread)
 
