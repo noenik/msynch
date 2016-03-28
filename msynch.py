@@ -342,12 +342,13 @@ def copyFiles(threadName, q):
             currentFileSize = fileData[2]
 
             try:
-                print("\n\nCopying file: %s" % filename)
-                with open(fileData[1], 'rb') as fsrc:
-                    with open(dest, 'wb') as fdst:
-                        copyfileobj(fsrc, fdst)
-                shutil.copymode(fileData[1], dest)               
+                #print("\n\nCopying file: %s" % filename)
+                #with open(fileData[1], 'rb') as fsrc:
+                #    with open(dest, 'wb') as fdst:
+                #        copyfileobj(fsrc, fdst)
+                #shutil.copymode(fileData[1], dest)               
 
+                shutil.copy(fileData[1], dest)
                 write_logg("Copied file: %s to %s" % (filename, dest), "Success")
 
             except IOError as e:
@@ -355,20 +356,22 @@ def copyFiles(threadName, q):
 
 
 # Run threads. When all threads are done, restart if new items have appeared in the queue.
-def runThread(thread):
+def runThread(threads):
     global active, exitFlag
 
-    thread.start()
+    for thread in threads:
+        thread.start()
 
     while not workQueue.empty():
         pass
 
     exitFlag = 1
 
-    thread.join()
+    for thread in threads:
+        thread.join()
 
     if not workQueue.empty():
-        runThread(thread)
+        runThread(threads)
     else:
         active = False
 
@@ -385,7 +388,12 @@ def handleItems():
         exitFlag = 0
         active = 1
 
-        thread = MoveHandler(1, "Thread-1", workQueue)
+        threadID = 1
+        threads = []
+
+        for i in range(1,3):
+            thread = MoveHandler(i, "Thread-"+i, workQueue)
+            threads.put(thread)
 
         queueLock.acquire()
 
@@ -396,7 +404,7 @@ def handleItems():
         queueLock.release()
 
         allowprint = False
-        runThread(thread)
+        runThread(threads)
         allowprint = True
 
     elif active:
