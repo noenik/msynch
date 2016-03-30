@@ -393,7 +393,7 @@ def handleItems():
 
         for i in range(1,2):
             thread = MoveHandler(i, "Thread-%i" % i, workQueue)
-            threads.put(thread)
+            threads.append(thread)
 
         queueLock.acquire()
 
