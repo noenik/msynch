@@ -193,6 +193,8 @@ def check_files():
         ins_vals = []
         it = 1
 
+        copied = 1 if init else 0
+
         for currentFile in file_list:
             file_name = currentFile.split(os.path.sep)[-1]
             destination = determineDestination(file_name, os.path.getsize(currentFile))
@@ -204,7 +206,7 @@ def check_files():
 
             if file_name not in logged_files.keys():
 
-                ins_vals.append("('%s', '%s', '%s', %i)" % (ins_name, ins_path_source, ins_path_dest, 0))
+                ins_vals.append("('%s', '%s', '%s', %i)" % (ins_name, ins_path_source, ins_path_dest, copied))
 
                 if it > 100:
                     ins_queries.append(ins_query + ", ".join(ins_vals) + ";")
