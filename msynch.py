@@ -147,16 +147,16 @@ def ismediafile(filepath):
 
 # Retrieve all files in the database
 def getLoggedFiles():
-    files = {}
+    files = []
     with con:
         cur = con.cursor()
 
-        cur.execute("SELECT filename, lastSize, done FROM File")
+        cur.execute("SELECT filename FROM File")
 
         result = cur.fetchall()
 
-        for filename, lastSize, done in result:
-            files[filename] = [lastSize, done]
+        for filename in result:
+            files.append(filename)
 
     return files
 
@@ -204,7 +204,7 @@ def check_files():
             ins_path_source = currentFile.replace("\'", "\'\'")
             ins_path_dest = destination.replace("\'", "\'\'")
 
-            if file_name not in logged_files.keys():
+            if file_name not in logged_files:
 
                 ins_vals.append("('%s', '%s', '%s', %i)" % (ins_name, ins_path_source, ins_path_dest, copied))
 
