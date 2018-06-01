@@ -1,7 +1,6 @@
 import sqlite3 as lite
 import os, threading, queue, time, shutil, re, codecs, configparser, sys
 
-
 #################################################################
 # Global variable declarations
 #################################################################
@@ -10,6 +9,8 @@ accepted_filetypes = ["mkv", "mp4", "avi"]
 readyFlag = 0
 init = False
 parser = configparser.ConfigParser()
+
+animes = []
 
 # Directories
 destinations = {}
@@ -28,7 +29,7 @@ workQueue = queue.Queue()
 interval = 1800
 active = False
 
-# Database and logg variables
+# Database and log variables
 exists = os.path.exists("files.db")
 con = lite.connect("files.db")
 
@@ -37,38 +38,25 @@ con = lite.connect("files.db")
 # Setup functions / general functions
 #################################################################
 
-# Class for thread that moves files
-class MoveHandler(threading.Thread):
-    def __init__(self, thID, name, q):
-        threading.Thread.__init__(self)
-        self.thID = thID
-        self.name = name
-        self.q = q
-
-    def run(self):
-        copyFiles(self.name, self.q)
-
-
 # Create database file and table
 def setup_db():
-
     with con:
         cur = con.cursor()
 
         cur.execute(
             "CREATE TABLE File(" +
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                "filename TEXT, " +
-                "path TEXT, " +
-                "lastSize INTEGER, " +
-                "done INTEGER DEFAULT 0, " +
-                "copied INTEGER DEFAULT 0)"
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+            "date_copied DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+            "filename TEXT, " +
+            "old_path TEXT, " +
+            "new_path TEXT, " +
+            "copied INTEGER)"
         )
 
 
 # Read config, creates new config if it doesn't exist
 def readConfig():
-    global destinations, interval
+    global destinations, interval, animes
 
     requiredSections = ["Paths", "Misc"]
     requiredFields = ["tv", "movie", "manual", "base"]
@@ -115,12 +103,14 @@ def readConfig():
         else:
             print("Interval not set. Using standard: 30min")
 
+        if "Anime" in parser.keys() and "Series" in parser["Anime"]:
+            animes = parser['Anime']['Series'].split(",")
+        else:
+            animes = False
+
 
 # Write an entry to the log, aquire writeLock first to be safe.
 def write_logg(entry, entryType):
-
-    writeLock.acquire()
-
     logg = codecs.open("logg.txt", "a", "utf-8")
 
     time_of_entry = time.asctime(time.localtime(time.time()))
@@ -129,7 +119,12 @@ def write_logg(entry, entryType):
     with logg:
         logg.write(entry)
 
-    writeLock.release()
+
+# Print given message to console if allowed
+def terout(msg):
+    if allowprint:
+        time_of_entry = time.asctime(time.localtime(time.time()))
+        sys.stdout.write("\n" + time_of_entry + " " + msg)
 
 
 #################################################################
@@ -168,102 +163,59 @@ def getLoggedFiles():
 
 # Read directory for all files
 def readFolder(baseDir):
-
     fileList = []
 
     for dirpath, dirnames, files in os.walk(baseDir):
         for f in files:
             fp = os.path.join(dirpath, f)
 
-            if(ismediafile(fp)):
+            if (ismediafile(fp)):
                 fileList.append(fp)
 
     return fileList
 
 
 # Add files that dos not already exist in the db
-def checkFiles():
-    global readyFlag, init, con
+def check_files():
+    global init, con
     con = lite.connect("files.db")
-    fileList = readFolder(destinations['base'])
-    loggedFiles = getLoggedFiles()
+    file_list = readFolder(destinations['base'])
+    logged_files = getLoggedFiles()
 
     terout("\n%s: Starting new run" % time.asctime(time.localtime(time.time())))
-
-    insert = False
-    update = False
 
     with con:
         cur = con.cursor()
 
-        if init:
-            insQuery = "INSERT INTO File (filename, path, lastSize, done, copied) VALUES "
-        else:
-            insQuery = "INSERT INTO File (filename, path, lastSize) VALUES "
+        ins_query = "INSERT INTO File (filename, old_path, new_path, copied) VALUES "
 
-        updateQueries = []
-        insQueries = []
+        ins_queries = []
+        ins_vals = []
         it = 1
 
-        for currentFile in fileList:
-            fileSize = os.path.getsize(currentFile)
-            fileName = currentFile.split(os.path.sep)[-1]
+        for currentFile in file_list:
+            file_name = currentFile.split(os.path.sep)[-1]
+            destination = determineDestination(file_name, os.path.getsize(currentFile))
+            destination = os.path.join(destination, file_name)
 
-            insName = fileName.replace("\'", "\'\'")
-            insPath = currentFile.replace("\'", "\'\'")
+            ins_name = file_name.replace("\'", "\'\'")
+            ins_path_source = currentFile.replace("\'", "\'\'")
+            ins_path_dest = destination.replace("\'", "\'\'")
 
-            if fileName not in loggedFiles.keys():
+            if file_name not in logged_files.keys():
 
-                if init:
-                    insQuery += "('%s', '%s', %i, 1, 1), " % (insName, insPath, fileSize)
-                else:
-                    insQuery += "('%s', '%s', %i), " % (insName, insPath, fileSize)
+                ins_vals.append("('%s', '%s', '%s', %i)" % (ins_name, ins_path_source, ins_path_dest, 0))
 
                 if it > 100:
-                    insQuery = insQuery.rstrip(", ")
-                    insQueries.append(insQuery)
+                    ins_queries.append(ins_query + ", ".join(ins_vals) + ";")
+                    ins_vals = []
 
-                    if init:
-                        insQuery = "INSERT INTO File (filename, path, lastSize, done, copied) VALUES "
-                    else:
-                        insQuery = "INSERT INTO File (filename, path, lastSize) VALUES "
+                it += 1
 
-                insert = True
-            else:
-                lastSize = loggedFiles[fileName][0]
-                done = loggedFiles[fileName][1]
-
-                if fileSize == lastSize and not done:
-                    updateQueries.append("UPDATE File SET done=1 WHERE filename='%s'; " % insName)
-                    readyFlag = 1
-                    update = True
-                elif fileSize != lastSize and not done:
-                    updateQueries.append("UPDATE File SET lastSize=%i WHERE filename='%s'" % (fileSize, insName))
-                    update = True
-
-            it += 1
-
-        if insert:
-            if not insQuery.endswith("VALUES "):
-                insQuery = insQuery.rstrip(", ")
-                insQueries.append(insQuery)
-
-            for query in insQueries:
+        if ins_queries:
+            for query in ins_queries:
                 cur.execute(query)
-
-            terout("Found new files")
-        else:
-            terout("No new files this time...")
-
-        if update:
-            for updateQuery in updateQueries:
-                cur.execute(updateQuery)
-            terout("Updating some data on the files")
-
-    if readyFlag:
-        terout("Ready flag up - initiating file transfers")
-        handleItems()
-        readyFlag = 0
+            handle_items()
 
     if init:
         init = False
@@ -276,28 +228,33 @@ def checkFiles():
 #################################################################
 
 
-def copyfileobj(fsrc, fdst, length=16*1024*1024):
+def copyfileobj(fsrc, fdst, length=16 * 1024 * 1024):
     copied = 0
     while True:
         buf = fsrc.read(length)
         if not buf:
             break
         fdst.write(buf)
-        copied += len(buf)
-        displayProgress(copied)
 
 
 # Returns the target destinations based on regex and size matching
-def determineDestination(filedata):
-    size = filedata[2]
-    fileName = filedata[1]
+def determineDestination(file_name, size):
     size /= 1000000
 
-    matchSeries = re.search(r'(?ix) (s|season) \d{1,2} (e|ep|x|episode) \s* \d{1,2} .*$', fileName)
+    matchSeries = re.search(r'(?ix) (s|season) \d{1,2} (e|ep|x|episode) \s* \d{1,2} .*$', file_name)
+    match_anime = False
 
-    if matchSeries:
+    for anime in animes:
+        a = anime.lower()
+        fn = file_name.lower()
+        if a in fn:
+            match_anime = True
+
+    if match_anime:
+        return destinations["Anime"]
+    elif matchSeries:
         return destinations["TV"]
-    elif size > 5*1024:
+    elif size > 5 * 1024:
         return destinations["Movie"]
     else:
         return destinations["Manual"]
@@ -309,7 +266,7 @@ def creteRunList():
     with con:
         cur = con.cursor()
 
-        query = "SELECT filename, path, lastSize FROM File WHERE done=1 AND copied=0"
+        query = "SELECT filename, old_path, new_path FROM File WHERE copied=0"
         cur.execute(query)
 
         result = cur.fetchall()
@@ -322,140 +279,35 @@ def creteRunList():
     return moveList
 
 
-# Move files
-def copyFiles(threadName, q):
-    global currentFileSize
+# Starts up threads, fills the workqueue with the files that are ready to be copied.
+def handle_items():
+    global exitFlag, active, allowprint
 
-    while not exitFlag:
-        if not workQueue.empty():
+    run_list = creteRunList()
 
-            queueLock.acquire()
-            fileData = q.get()
-            queueLock.release()
-
-            dest = determineDestination(fileData)
-            
-            if os.path.isdir(dest):
-                dest = os.path.join(dest, os.path.basename(fileData[1]))
-
-            filename = fileData[0]
-            currentFileSize = fileData[2]
+    if run_list:
+        for item in run_list:
+            filename = item[0]
+            source_path = item[1]
+            dest_path = item[2]
 
             try:
                 print("\n\nCopying file: %s" % filename)
-                with open(fileData[1], 'rb') as fsrc:
-                    with open(dest, 'wb') as fdst:
+                with open(source_path, 'rb') as fsrc:
+                    with open(dest_path, 'wb') as fdst:
                         copyfileobj(fsrc, fdst)
-                shutil.copymode(fileData[1], dest)               
+                shutil.copymode(source_path, dest_path)
 
-                #shutil.copy(fileData[1], dest)
-                write_logg("Copied file: %s to %s" % (filename, dest), "Success")
+                # shutil.copy(fileData[1], dest)
+                write_logg("Copied file: %s to %s" % (filename, dest_path), "Success")
 
             except IOError as e:
                 write_logg("Failed to copy file %s" % filename, "Error")
 
 
-# Run threads. When all threads are done, restart if new items have appeared in the queue.
-def runThread(threads):
-    global active, exitFlag
-
-    for thread in threads:
-        thread.start()
-
-    while not workQueue.empty():
-        pass
-
-    exitFlag = 1
-
-    for thread in threads:
-        thread.join()
-
-    if not workQueue.empty():
-        runThread(threads)
-    else:
-        active = False
-
-
-# Starts up threads, fills the workqueue with the files that are ready to be copied.
-def handleItems():
-    global exitFlag, active, allowprint
-
-    runList = creteRunList()
-
-    if runList and not active:
-        terout("Creating new threads")
-
-        exitFlag = 0
-        active = 1
-
-        threadID = 1
-        threads = []
-
-        for i in range(1,3):
-            thread = MoveHandler(i, "Thread-%i" % i, workQueue)
-            threads.append(thread)
-
-        queueLock.acquire()
-
-        for item in runList:
-
-            workQueue.put(item)
-
-        queueLock.release()
-
-        allowprint = False
-        runThread(threads)
-        allowprint = True
-
-    elif active:
-        terout("Threads active, putting work in queue")
-        queueLock.acquire()
-
-        for item in runList:
-
-            workQueue.put(item)
-
-        queueLock.release()
-
-
 #################################################################
 # Functions
 #################################################################
-
-# Makes a progressbar when copying files
-def displayProgress(copied):
-    global lastIt
-
-    if time.time() - lastIt >= 1 or copied == currentFileSize:
-        lastIt = time.time()
-        progress = int((copied/currentFileSize) * 20)
-        
-        cp = copied/1000000
-        tot = currentFileSize/1000000
-
-        spaces = 20 - progress
-        strout = "[%s>%s] %iMB / %iMB\r" % ("="*progress, " "*spaces, cp, tot)
-
-        sys.stdout.write(strout)
-        sys.stdout.flush()
-
-
-# Print given message to console if allowed
-def terout(msg):
-    if allowprint:
-        sys.stdout.write("\n" + msg)
-
-
-# Performs a task at regular intervals.
-def task(interval, work_function, it = 0):
-    if it != 1:
-        threading.Timer(
-            interval,
-            task, [interval, work_function, 0 if it == 0 else it-1]
-            ).start()
-
-    work_function()
-
 
 def main():
     global init
@@ -466,7 +318,8 @@ def main():
 
     readConfig()
 
-    task(interval, checkFiles)
+    check_files()
 
 
-main()
+if __name__ == '__main__':
+    main()
