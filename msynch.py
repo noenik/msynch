@@ -275,7 +275,7 @@ def creteRunList():
 
         for filename, filepath, lastSize in result:
             moveList.append([filename, filepath, lastSize])
-            udquery = "UPDATE File SET copied=1 WHERE path='%s'" % filepath.replace("\'", "\'\'")
+            udquery = "UPDATE File SET copied=1 WHERE old_path='%s'" % filepath.replace("\'", "\'\'")
             cur.execute(udquery)
 
     return moveList
