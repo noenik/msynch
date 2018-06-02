@@ -211,6 +211,7 @@ def check_files():
                 if it > 100:
                     ins_queries.append(ins_query + ", ".join(ins_vals) + ";")
                     ins_vals = []
+                    it = 0
 
                 it += 1
 
@@ -273,9 +274,9 @@ def creteRunList():
 
         result = cur.fetchall()
 
-        for filename, filepath, lastSize in result:
-            moveList.append([filename, filepath, lastSize])
-            udquery = "UPDATE File SET copied=1 WHERE old_path='%s'" % filepath.replace("\'", "\'\'")
+        for filename, old_path, new_path in result:
+            moveList.append([filename, old_path, new_path])
+            udquery = "UPDATE File SET copied=1 WHERE old_path='%s'" % old_path.replace("\'", "\'\'")
             cur.execute(udquery)
 
     return moveList
