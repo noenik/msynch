@@ -283,7 +283,7 @@ def handle_items():
                         copyfileobj(fsrc, fdst)
                 shutil.copymode(source_path, dest_path)
 
-                # shutil.copy(fileData[1], dest)
+                terout("File copied", prefix="SUCCESS")
                 write_logg("Copied file: %s to %s" % (filename, dest_path), "Success")
 
             except IOError as e:
