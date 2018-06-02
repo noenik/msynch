@@ -121,10 +121,11 @@ def write_logg(entry, entryType):
 
 
 # Print given message to console if allowed
-def terout(msg):
-    if allowprint:
-        time_of_entry = time.asctime(time.localtime(time.time()))
-        sys.stdout.write("\n" + time_of_entry + " " + msg + "\n")
+def terout(msg, prefix=""):
+    if prefix:
+        prefix = "[%s] " % prefix
+    time_of_entry = time.asctime(time.localtime(time.time()))
+    sys.stdout.write("\n" + time_of_entry + " " + prefix + msg + "\n")
 
 
 #################################################################
@@ -182,8 +183,6 @@ def check_files():
     file_list = readFolder(destinations['base'])
     logged_files = getLoggedFiles()
 
-    terout("\n%s: Starting new run" % time.asctime(time.localtime(time.time())))
-
     with con:
         cur = con.cursor()
 
@@ -205,7 +204,7 @@ def check_files():
             ins_path_dest = destination.replace("\'", "\'\'")
 
             if file_name not in logged_files:
-                terout("New file! " + file_name)
+                terout("New file! " + file_name, prefix="INFO")
                 ins_vals.append("('%s', '%s', '%s', %i)" % (ins_name, ins_path_source, ins_path_dest, copied))
 
                 if it > 100:
@@ -220,14 +219,13 @@ def check_files():
 
         if ins_queries:
             for query in ins_queries:
-                terout("Executing query: " + query)
                 cur.execute(query)
             handle_items()
 
     if init:
         init = False
-        terout("Initial run: ignoring all files")
-        terout("Reading folder: %s" % destinations['base'])
+        terout("Initial run: ignoring all files", prefix="INFO")
+        terout("Reading folder: %s" % destinations['base'], prefix="INFO")
 
 
 #################################################################
@@ -297,19 +295,21 @@ def handle_items():
             filename = item[0]
             source_path = item[1]
             dest_path = item[2]
-            print("Pretending to copy " + filename)
-            # try:
-            #     print("\n\nCopying file: %s" % filename)
-            #     with open(source_path, 'rb') as fsrc:
-            #         with open(dest_path, 'wb') as fdst:
-            #             copyfileobj(fsrc, fdst)
-            #     shutil.copymode(source_path, dest_path)
-            #
-            #     # shutil.copy(fileData[1], dest)
-            #     write_logg("Copied file: %s to %s" % (filename, dest_path), "Success")
-            #
-            # except IOError as e:
-            #     write_logg("Failed to copy file %s" % filename, "Error")
+
+            terout("Copying file " + filename, prefix="COPY")
+
+            try:
+                print("\n\nCopying file: %s" % filename)
+                with open(source_path, 'rb') as fsrc:
+                    with open(dest_path, 'wb') as fdst:
+                        copyfileobj(fsrc, fdst)
+                shutil.copymode(source_path, dest_path)
+
+                # shutil.copy(fileData[1], dest)
+                write_logg("Copied file: %s to %s" % (filename, dest_path), "Success")
+
+            except IOError as e:
+                write_logg("Failed to copy file %s" % filename, "Error")
 
 
 #################################################################
