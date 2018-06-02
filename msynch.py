@@ -50,6 +50,7 @@ def setup_db():
             "filename TEXT, " +
             "old_path TEXT, " +
             "new_path TEXT, " +
+            "dest_category TEXT," +
             "copied INTEGER)"
         )
 
@@ -166,7 +167,7 @@ def check_files():
     with con:
         cur = con.cursor()
 
-        ins_query = "INSERT INTO File (filename, old_path, new_path, copied) VALUES "
+        ins_query = "INSERT INTO File (filename, old_path, new_path, dest_category, copied) VALUES "
 
         ins_queries = []
         ins_vals = []
@@ -176,7 +177,7 @@ def check_files():
 
         for currentFile in file_list:
             file_name = currentFile.split(os.path.sep)[-1]
-            destination = determineDestination(file_name, os.path.getsize(currentFile))
+            destination, dest_cat = determineDestination(file_name, os.path.getsize(currentFile))
             destination = os.path.join(destination, file_name)
 
             ins_name = file_name.replace("\'", "\'\'")
@@ -185,7 +186,7 @@ def check_files():
 
             if file_name not in logged_files:
                 terout("New file! " + file_name, prefix="INFO")
-                ins_vals.append("('%s', '%s', '%s', %i)" % (ins_name, ins_path_source, ins_path_dest, copied))
+                ins_vals.append("('%s', '%s', '%s', '%s', %i)" % (ins_name, ins_path_source, ins_path_dest, dest_cat, copied))
 
                 if it > 100:
                     ins_queries.append(ins_query + ", ".join(ins_vals) + ";")
@@ -236,13 +237,13 @@ def determineDestination(file_name, size):
             match_anime = True
 
     if match_anime:
-        return destinations["Anime"]
+        return destinations["Anime"], "Anime"
     elif matchSeries:
-        return destinations["TV"]
+        return destinations["TV"], "TV"
     elif size > 5 * 1024:
-        return destinations["Movie"]
+        return destinations["Movie"], "Movie"
     else:
-        return destinations["Manual"]
+        return destinations["Manual"], "Manual"
 
 
 # Make a list of files that are marked done but not copied
