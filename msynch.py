@@ -65,43 +65,23 @@ def readConfig():
         with open("config.ini", "w") as conf:
             conf.write("[Paths]\nTV = ./TV\nMovie = ./Movies\nManual = ./Manual\nbase = ./\n\n"
                        + "[Misc]\nUnit = minutes\nInterval = 30")
-        print("No config was found, so a new one was created. Please edit and restart")
+        terout("No config was found, so a new one was created. Please edit and restart", prefix="INFO")
         exit(1)
     else:
         parser.read("config.ini")
 
         for section in requiredSections:
             if section not in parser.keys():
-                print("Error: Missing section %s in config" % section)
+                terout("Error: Missing section %s in config" % section, prefix="CONFIG ERROR")
                 exit(1)
 
         for key in requiredFields:
             if key not in parser['Paths']:
-                print("Error: missing parameter %s in config" % key)
+                terout("Error: missing parameter %s in config" % key, prefix="CONFIG ERROR")
                 exit(1)
 
         # for val in parser['Paths']:
         destinations = parser['Paths']
-
-        if "interval" in parser['Misc']:
-            factor = 60
-            if "unit" in parser['Misc']:
-                unit = parser['Misc']['Unit']
-                if unit == "seconds":
-                    factor = 1
-                elif unit == "minutes":
-                    factor = 60
-                elif unit == "hours":
-                    factor = 3600
-                else:
-                    print("Unknown unit %s. Using standard: minutes" % unit)
-            else:
-                print("Unit not set. Using standard: minutes")
-
-            interval = int(parser['Misc']['Interval']) * factor
-            print("Interval = %i" % interval)
-        else:
-            print("Interval not set. Using standard: 30min")
 
         if "Anime" in parser.keys() and "Series" in parser["Anime"]:
             animes = parser['Anime']['Series'].split(",")
