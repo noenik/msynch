@@ -125,7 +125,7 @@ def terout(msg, prefix=""):
     if prefix:
         prefix = "[%s] " % prefix
     time_of_entry = time.asctime(time.localtime(time.time()))
-    sys.stdout.write("\n" + time_of_entry + " " + prefix + msg + "\n")
+    sys.stdout.write(time_of_entry + " " + prefix + msg + "\n")
 
 
 #################################################################
@@ -170,7 +170,7 @@ def readFolder(baseDir):
         for f in files:
             fp = os.path.join(dirpath, f)
 
-            if (ismediafile(fp)):
+            if ismediafile(fp):
                 fileList.append(fp)
 
     return fileList
@@ -296,10 +296,8 @@ def handle_items():
             source_path = item[1]
             dest_path = item[2]
 
-            terout("Copying file " + filename, prefix="COPY")
-
             try:
-                print("\n\nCopying file: %s" % filename)
+                terout("Copying file " + filename, prefix="COPY")
                 with open(source_path, 'rb') as fsrc:
                     with open(dest_path, 'wb') as fdst:
                         copyfileobj(fsrc, fdst)
@@ -309,6 +307,7 @@ def handle_items():
                 write_logg("Copied file: %s to %s" % (filename, dest_path), "Success")
 
             except IOError as e:
+                terout("Failed to copy file %s, is the destination right?" % filename, prefix="ERROR")
                 write_logg("Failed to copy file %s" % filename, "Error")
 
 
