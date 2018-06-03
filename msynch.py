@@ -186,7 +186,8 @@ def check_files():
 
             if file_name not in logged_files:
                 terout("New file! " + file_name, prefix="INFO")
-                ins_vals.append("('%s', '%s', '%s', '%s', %i)" % (ins_name, ins_path_source, ins_path_dest, dest_cat, copied))
+                ins_vals.append(
+                    "('%s', '%s', '%s', '%s', %i)" % (ins_name, ins_path_source, ins_path_dest, dest_cat, copied))
 
                 if it > 100:
                     ins_queries.append(ins_query + ", ".join(ins_vals) + ";")
@@ -259,8 +260,6 @@ def creteRunList():
 
         for filename, old_path, new_path in result:
             moveList.append([filename, old_path, new_path])
-            udquery = "UPDATE File SET copied=1 WHERE old_path='%s'" % old_path.replace("\'", "\'\'")
-            cur.execute(udquery)
 
     return moveList
 
@@ -272,24 +271,28 @@ def handle_items():
     run_list = creteRunList()
 
     if run_list:
-        for item in run_list:
-            filename = item[0]
-            source_path = item[1]
-            dest_path = item[2]
+        with con:
+            cur = con.cursor()
+            for item in run_list:
+                filename = item[0]
+                source_path = item[1]
+                dest_path = item[2]
 
-            try:
-                terout("Copying file " + filename, prefix="COPY")
-                with open(source_path, 'rb') as fsrc:
-                    with open(dest_path, 'wb') as fdst:
-                        copyfileobj(fsrc, fdst)
-                shutil.copymode(source_path, dest_path)
+                try:
+                    terout("Copying file " + filename, prefix="COPY")
+                    with open(source_path, 'rb') as fsrc:
+                        with open(dest_path, 'wb') as fdst:
+                            copyfileobj(fsrc, fdst)
+                    shutil.copymode(source_path, dest_path)
 
-                terout("File copied", prefix="SUCCESS")
-                write_logg("Copied file: %s to %s" % (filename, dest_path), "Success")
+                    terout("File copied", prefix="SUCCESS")
+                    write_logg("Copied file: %s to %s" % (filename, dest_path), "Success")
+                    udquery = "UPDATE File SET copied=1 WHERE old_path='%s'" % source_path.replace("\'", "\'\'")
+                    cur.execute(udquery)
 
-            except IOError as e:
-                terout("Failed to copy file %s, is the destination right?" % filename, prefix="ERROR")
-                write_logg("Failed to copy file %s" % filename, "Error")
+                except IOError as e:
+                    terout("Failed to copy file %s, is the destination right?" % filename, prefix="ERROR")
+                    write_logg("Failed to copy file %s" % filename, "Error")
 
 
 #################################################################
